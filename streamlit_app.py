@@ -26,9 +26,9 @@ st.set_page_config(
 )
 
 """
-# :material/query_stats: Stock peer analysis
+# :material/query_stats: Bodenwassermonitor Brandenburg
 
-Easily compare stocks against others in their peer group.
+Die dargestellten Daten beruhen auf Neutronenmessungen und Modellsimulationen (weitere Details folgen...).
 """
 
 ""  # Add some space.
@@ -84,13 +84,11 @@ with top_left_cell:
 
 # Time horizon selector
 horizon_map = {
-    "1 Months": "1mo",
-    "3 Months": "3mo",
-    "6 Months": "6mo",
-    "1 Year": "1y",
-    "5 Years": "5y",
-    "10 Years": "10y",
-    "20 Years": "20y",
+    "1 Months": 31,
+    "3 Months": 3*31,
+    "6 Months": 6*31,
+    "1 Year": 365,
+    "5 Years": 5*365,
 }
 
 with top_left_cell:
@@ -119,44 +117,17 @@ right_cell = cols[1].container(
     border=True, height="stretch", vertical_alignment="center"
 )
 
-dtimes = pd.date_range(start="2023-01-01", end="2025-11-17", freq="D")
+def load_data2():
+    df = pd.read_csv("https://b2drop.eudat.eu/public.php/dav/files/efStHSPAM8HLc92/products/swc-from-crns.txt",
+                     sep="\t", na_values="na")
+    df['datetime'] = pd.to_datetime(df['datetime'])
+    df = df.set_index('datetime')
+    df.index.name = 'Date'
+    df = df.loc[df.index[-1] - pd.DateOffset(days=horizon_map[horizon]):df.index[-1]]
+    return df
 
-def load_data(dtimes, columns, rho=0.8, noise_std=1.0, seed=None):
-    """
-    Generate an n×m array where each column is an AR(1) autocorrelated series.
-
-    Parameters:
-        dtimes (pd.DatetimeIndex): time steps
-        columns (int): number of columns (series)
-        rho (float): AR(1) autocorrelation coefficient (between -1 and 1)
-        noise_std (float): standard deviation of noise
-        seed (int): random seed for reproducibility
-
-    Returns:
-        np.ndarray: autocorrelated series of shape (n, m)
-    """
-    if seed is not None:
-        np.random.seed(seed)
-    n = len(dtimes)
-    m = len(columns)
-    arr = np.zeros((n, m))
-
-    # initial values
-    arr[0] = np.random.normal(0, noise_std, m)
-
-    # generate AR(1) series for each column
-    for t in range(1, n):
-        arr[t] = rho * arr[t - 1] + np.random.normal(0, noise_std, m)
-
-    arr = pd.DataFrame(arr, index=dtimes, columns=columns)
-    arr.index.name = 'Date'
-    return arr
-
-
-# Example usage
-n = 100     # rows
-m = 5       # columns
-data = load_data(dtimes, STOCKS, rho=0.7, seed=42)
+#data = load_data(dtimes, STOCKS, rho=0.7, seed=42)
+data = load_data2()[tickers]
 
 #@st.cache_resource(show_spinner=False, ttl="6h")
 #def load_data(tickers, period):
@@ -185,8 +156,9 @@ if empty_columns:
 normalized = data.div(data.iloc[0])
 
 latest_norm_values = {normalized[ticker].iat[-1]: ticker for ticker in tickers}
-max_norm_value = max(latest_norm_values.items())
-min_norm_value = min(latest_norm_values.items())
+#max_norm_value = max(latest_norm_values.items())
+#min_norm_value = min(latest_norm_values.items())
+mean_theta = data.loc["2024-09-01":"2025-09-01"].mean()
 
 bottom_left_cell = cols[0].container(
     border=True, height="stretch", vertical_alignment="center"
@@ -195,32 +167,47 @@ bottom_left_cell = cols[0].container(
 with bottom_left_cell:
     cols = st.columns(2)
     cols[0].metric(
-        "Best stock",
-        max_norm_value[1],
-        delta=f"{round(max_norm_value[0] * 100)}%",
+        "Trockenster Standort: "+mean_theta.idxmin(),
+        round(mean_theta.min(), 2),
+        delta=f"{round(mean_theta.min() * 100)}%",
         width="content",
     )
     cols[1].metric(
-        "Worst stock",
-        min_norm_value[1],
-        delta=f"{round(min_norm_value[0] * 100)}%",
+        "Feuchtester Standort: "+mean_theta.idxmax(),
+        round(mean_theta.max(), 2),
+        delta=f"{round(mean_theta.max() * 100)}%",
         width="content",
     )
 
 
 # Plot normalized prices
+#with right_cell:
+#    st.altair_chart(
+#        alt.Chart(
+#            normalized.reset_index().melt(
+#                id_vars=["Date"], var_name="Stock", value_name="Normalized price"
+#            )
+#        )
+#        .mark_line()
+#        .encode(
+#            alt.X("Date:T"),
+#            alt.Y("Normalized price:Q").scale(zero=False),
+#            alt.Color("Stock:N"),
+#        )
+#        .properties(height=400)
+#    )
+
 with right_cell:
     st.altair_chart(
         alt.Chart(
-            normalized.reset_index().melt(
-                id_vars=["Date"], var_name="Stock", value_name="Normalized price"
+                data.reset_index().rename(columns={"index": "Date"})  .melt("Date", var_name="series", value_name="value")
             )
-        )
-        .mark_line()
-        .encode(
-            alt.X("Date:T"),
-            alt.Y("Normalized price:Q").scale(zero=False),
-            alt.Color("Stock:N"),
+            .mark_line()
+            .encode(
+                x="Date:T",
+                y=alt.Y("value:Q", title="Soil water content [m³/m³]", scale=alt.Scale(domain=[0, 0.4])),
+                color="series:N",
+                tooltip=["Date:T", "series:N", "value:Q"]
         )
         .properties(height=400)
     )
