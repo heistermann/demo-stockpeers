@@ -14,12 +14,13 @@
 # limitations under the License.
 
 import streamlit as st
-import yfinance as yf
+#import yfinance as yf
 import pandas as pd
+import numpy as np
 import altair as alt
 
 st.set_page_config(
-    page_title="Stock peer analysis dashboard",
+    page_title="Soil water viewer",
     page_icon=":chart_with_upwards_trend:",
     layout="wide",
 )
@@ -36,104 +37,17 @@ cols = st.columns([1, 3])
 # Will declare right cell later to avoid showing it when no data.
 
 STOCKS = [
-    "AAPL",
-    "ABBV",
-    "ACN",
-    "ADBE",
-    "ADP",
-    "AMD",
-    "AMGN",
-    "AMT",
-    "AMZN",
-    "APD",
-    "AVGO",
-    "AXP",
-    "BA",
-    "BK",
-    "BKNG",
-    "BMY",
-    "BRK.B",
-    "BSX",
-    "C",
-    "CAT",
-    "CI",
-    "CL",
-    "CMCSA",
-    "COST",
-    "CRM",
-    "CSCO",
-    "CVX",
-    "DE",
-    "DHR",
-    "DIS",
-    "DUK",
-    "ELV",
-    "EOG",
-    "EQR",
-    "FDX",
-    "GD",
-    "GE",
-    "GILD",
-    "GOOG",
-    "GOOGL",
-    "HD",
-    "HON",
-    "HUM",
-    "IBM",
-    "ICE",
-    "INTC",
-    "ISRG",
-    "JNJ",
-    "JPM",
-    "KO",
+    "OEH",
     "LIN",
-    "LLY",
-    "LMT",
-    "LOW",
-    "MA",
-    "MCD",
-    "MDLZ",
-    "META",
-    "MMC",
-    "MO",
-    "MRK",
-    "MSFT",
-    "NEE",
-    "NFLX",
-    "NKE",
-    "NOW",
-    "NVDA",
-    "ORCL",
-    "PEP",
-    "PFE",
-    "PG",
-    "PLD",
-    "PM",
-    "PSA",
-    "REGN",
-    "RTX",
-    "SBUX",
-    "SCHW",
-    "SLB",
-    "SO",
-    "SPGI",
-    "T",
-    "TJX",
-    "TMO",
-    "TSLA",
-    "TXN",
-    "UNH",
-    "UNP",
-    "UPS",
-    "V",
-    "VZ",
-    "WFC",
-    "WM",
-    "WMT",
-    "XOM",
+    "MQ",
+    "PAU",
+    "BOO",
+    "DED",
+    "KH",
+    "GOL",
 ]
 
-DEFAULT_STOCKS = ["AAPL", "MSFT", "GOOGL", "NVDA", "AMZN", "TSLA", "META"]
+DEFAULT_STOCKS = ["OEH","LIN"]
 
 
 def stocks_to_str(stocks):
@@ -205,23 +119,61 @@ right_cell = cols[1].container(
     border=True, height="stretch", vertical_alignment="center"
 )
 
+dtimes = pd.date_range(start="2023-01-01", end="2025-11-17", freq="D")
 
-@st.cache_resource(show_spinner=False, ttl="6h")
-def load_data(tickers, period):
-    tickers_obj = yf.Tickers(tickers)
-    data = tickers_obj.history(period=period)
-    if data is None:
-        raise RuntimeError("YFinance returned no data.")
-    return data["Close"]
+def load_data(dtimes, columns, rho=0.8, noise_std=1.0, seed=None):
+    """
+    Generate an n×m array where each column is an AR(1) autocorrelated series.
+
+    Parameters:
+        dtimes (pd.DatetimeIndex): time steps
+        columns (int): number of columns (series)
+        rho (float): AR(1) autocorrelation coefficient (between -1 and 1)
+        noise_std (float): standard deviation of noise
+        seed (int): random seed for reproducibility
+
+    Returns:
+        np.ndarray: autocorrelated series of shape (n, m)
+    """
+    if seed is not None:
+        np.random.seed(seed)
+    n = len(dtimes)
+    m = len(columns)
+    arr = np.zeros((n, m))
+
+    # initial values
+    arr[0] = np.random.normal(0, noise_std, m)
+
+    # generate AR(1) series for each column
+    for t in range(1, n):
+        arr[t] = rho * arr[t - 1] + np.random.normal(0, noise_std, m)
+
+    arr = pd.DataFrame(arr, index=dtimes, columns=columns)
+    arr.index.name = 'Date'
+    return arr
+
+
+# Example usage
+n = 100     # rows
+m = 5       # columns
+data = load_data(dtimes, STOCKS, rho=0.7, seed=42)
+
+#@st.cache_resource(show_spinner=False, ttl="6h")
+#def load_data(tickers, period):
+#    tickers_obj = yf.Tickers(tickers)
+#    data = tickers_obj.history(period=period)
+#    if data is None:
+#        raise RuntimeError("YFinance returned no data.")
+#    return data["Close"]
 
 
 # Load the data
-try:
-    data = load_data(tickers, horizon_map[horizon])
-except yf.exceptions.YFRateLimitError as e:
-    st.warning("YFinance is rate-limiting us :(\nTry again later.")
-    load_data.clear()  # Remove the bad cache entry.
-    st.stop()
+#try:
+#    data = load_data(tickers, horizon_map[horizon])
+#except yf.exceptions.YFRateLimitError as e:
+#    st.warning("YFinance is rate-limiting us :(\nTry again later.")
+#    load_data.clear()  # Remove the bad cache entry.
+#    st.stop()
 
 empty_columns = data.columns[data.isna().all()].tolist()
 
