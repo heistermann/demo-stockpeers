@@ -84,11 +84,12 @@ with top_left_cell:
 
 # Time horizon selector
 horizon_map = {
-    "1 Months": 31,
-    "3 Months": 3*31,
-    "6 Months": 6*31,
-    "1 Year": 365,
-    "5 Years": 5*365,
+    "1 months": 31,
+    "3 months": 3*31,
+    "6 months": 6*31,
+    "1 year": 365,
+    "2 years": 2*365,
+    "3 years": 3*365,
 }
 
 with top_left_cell:
@@ -96,7 +97,7 @@ with top_left_cell:
     horizon = st.pills(
         "Time horizon",
         options=list(horizon_map.keys()),
-        default="6 Months",
+        default="6 months",
     )
 
 tickers = [t.upper() for t in tickers]
