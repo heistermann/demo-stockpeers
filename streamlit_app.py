@@ -29,7 +29,9 @@ st.set_page_config(
 """
 # :material/query_stats: Bodenwassermonitor Brandenburg
 
-Die dargestellten Daten beruhen auf Neutronenmessungen und Modellsimulationen (weitere Details folgen...).
+Die dargestellten Daten beruhen auf Neutronenmessungen und Modellsimulationen. 
+Das Monitoringprogramm ist eine Forschungskooperation der Universität Potsdam, des
+Helmholtz-Zentrums für Umweltforschung und des Landes Brandenburg.
 """
 
 ""  # Add some space.
@@ -46,6 +48,9 @@ STOCKS = [
     "DED",
     "KH",
     "GOL",
+    "TRE",
+    "DUB",
+    "FUE",
 ]
 
 DEFAULT_STOCKS = ["OEH","MQ","DED"]
@@ -79,26 +84,26 @@ with top_left_cell:
         "Standorte",
         options=sorted(set(STOCKS) | set(st.session_state.tickers_input)),
         default=st.session_state.tickers_input,
-        placeholder="Choose stocks to compare. Example: NVDA",
+        placeholder="Wähle mindestens einen Standort, z.B. MQ.",
         accept_new_options=True,
     )
 
 # Time horizon selector
 horizon_map = {
-    "1 months": 31,
-    "3 months": 3*31,
-    "6 months": 6*31,
-    "1 year": 365,
-    "2 years": 2*365,
-    "3 years": 3*365,
+    "1 Monat": 31,
+    "3 Monate": 3*31,
+    "6 Monate": 6*31,
+    "1 Jahr": 365,
+    "2 Jahre": 2*365,
+    "3 Jahre": 3*365,
 }
 
 with top_left_cell:
     # Buttons for picking time horizon
     horizon = st.pills(
-        "Time horizon",
+        "Zeithorizont",
         options=list(horizon_map.keys()),
-        default="6 months",
+        default="6 Monate",
     )
 
 tickers = [t.upper() for t in tickers]
@@ -111,7 +116,7 @@ else:
     st.query_params.pop("stocks", None)
 
 if not tickers:
-    top_left_cell.info("Pick some stocks to compare", icon=":material/info:")
+    top_left_cell.info("Wähle mindestens einen Standort.", icon=":material/info:")
     st.stop()
 
 
@@ -138,6 +143,9 @@ sim2 = load_data("https://b2drop.eudat.eu/public.php/dav/files/efStHSPAM8HLc92/p
 sim = sim2[tickers]
 d862 = load_data("https://b2drop.eudat.eu/public.php/dav/files/efStHSPAM8HLc92/products/d86-from-crns.txt")
 d86 = d862[tickers]
+
+locs = pd.read_csv("https://b2drop.eudat.eu/public.php/dav/files/efStHSPAM8HLc92/metadata/metadata-locations.csv", sep=";")
+locs = locs.set_index("id")
 
 
 
@@ -169,23 +177,93 @@ bottom_left_cell = cols[0].container(
     border=True, height="stretch", vertical_alignment="center"
 )
 
+# with bottom_left_cell:
+#     cols = st.columns(2)
+#     cols[0].metric(
+#         "Mittelwert: "+mean_theta.idxmin(),
+#         round(mean_theta.min(), 2),
+#         delta=f"{round(mean_theta.min() * 100)}%",
+#         width="content",
+#     )
+#     cols[1].metric(
+#         "Mittelwert: "+mean_theta.idxmax(),
+#         round(mean_theta.max(), 2),
+#         delta=f"{round(mean_theta.max() * 100)}%",
+#         width="content",
+#     )
+
 with bottom_left_cell:
-    cols = st.columns(2)
-    cols[0].metric(
-        "Mittelwert: "+mean_theta.idxmin(),
-        round(mean_theta.min(), 2),
-        delta=f"{round(mean_theta.min() * 100)}%",
-        width="content",
+    fig = go.Figure()
+
+    fig.add_trace(go.Scattermapbox(
+        lat=locs.lat,
+        lon=locs.lon,
+        mode="markers",
+        marker=dict(
+            size=12,           # bigger
+            color="black",     # outline color
+            opacity=1
+        ),
+        hoverinfo="none"      # no hover for outline
+    ))
+
+    fig.add_trace(go.Scattermapbox(
+        lat=locs.loc[tickers,"lat"],
+        lon=locs.loc[tickers,"lon"],
+        mode="markers",
+        marker=dict(
+            size=16,           # bigger
+            color="black",     # outline color
+            opacity=1
+        ),
+        hoverinfo="none"      # no hover for outline
+    ))
+
+    # Inner marker (actual point)
+    fig.add_trace(go.Scattermapbox(
+        lat=locs["lat"],
+        lon=locs["lon"],
+        mode="markers",
+        marker=dict(
+            size=10,           # smaller
+            color="#DAB2FF"
+        ),
+        text=locs["name"]
+    ))
+    
+    fig.update_layout(showlegend=False)
+
+    # 
+    # 
+    # go.Scattermapbox(
+    #     lat=locs.lat,
+    #     lon=locs.lon,
+    #     mode="markers",
+    #     marker=dict(
+    #         size=12,
+    #         color="royalblue",
+    #         line=dict(width=2, color="white")
+    #     ),
+    #     text=locs.index
+    # ))
+    
+
+    fig.update_layout(
+        mapbox=dict(
+            style="open-street-map",
+            zoom=6,
+            center=dict(lat=52.507401395949145, lon=13.413453748453412)
+        ),
+        height=300,
+        margin=dict(l=0, r=0, t=0, b=0)
     )
-    cols[1].metric(
-        "Mittelwert: "+mean_theta.idxmax(),
-        round(mean_theta.max(), 2),
-        delta=f"{round(mean_theta.max() * 100)}%",
-        width="content",
-    )
+
+    st.plotly_chart(fig, use_container_width=True)
 
 with right_cell:
     fig = px.line(data, x=data.index, y=tickers)
+    fig.update_layout(legend_title_text="Standorte")
+    fig.update_yaxes(title_text="SWC (m³/m³)")
     st.plotly_chart(fig, use_container_width=True)
 
 ""
@@ -215,17 +293,20 @@ for i, ticker in enumerate(data2.columns):
                 line=dict(color="rgb(0,150,200)", width=0), fill="tozeroy"), secondary_y=True
     )
     fig.add_trace(
-        go.Scatter(x=data2.index, y=data2[ticker], mode="lines", name="SWC(CRNS)"), secondary_y=False
-    )
-    fig.add_trace(
         go.Scatter(x=sim2.index, y=sim2[ticker], mode="lines", name="SWC(SWAP)"), secondary_y=False
     )
+    fig.add_trace(
+        go.Scatter(x=data2.index, y=data2[ticker], mode="lines", name="SWC(CRNS)"), secondary_y=False
+    )
+
 
     fig.update_yaxes(
     title_text="D86 (cm)",
     range=[-120, -0],
-    secondary_y=True
-)
+    secondary_y=True)
+    
+    fig.update_yaxes(title_text="SWC (m³/m³)", secondary_y=False)
+
     fig.update_layout(title=ticker)
     
     cell = cols[(i * 1) % NUM_COLS].container(border=True)
@@ -240,4 +321,4 @@ for i, ticker in enumerate(data2.columns):
 ## Datendownload
 """
 
-data
+data2
