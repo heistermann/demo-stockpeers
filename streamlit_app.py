@@ -18,6 +18,8 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import altair as alt
+import plotly.express as px
+import plotly.graph_objects as go
 
 st.set_page_config(
     page_title="Soil water viewer",
@@ -47,7 +49,7 @@ STOCKS = [
     "GOL",
 ]
 
-DEFAULT_STOCKS = ["OEH","LIN"]
+DEFAULT_STOCKS = ["OEH","MQ","DED"]
 
 
 def stocks_to_str(stocks):
@@ -75,7 +77,7 @@ top_left_cell = cols[0].container(
 with top_left_cell:
     # Selectbox for stock tickers
     tickers = st.multiselect(
-        "Stock tickers",
+        "Standorte",
         options=sorted(set(STOCKS) | set(st.session_state.tickers_input)),
         default=st.session_state.tickers_input,
         placeholder="Choose stocks to compare. Example: NVDA",
@@ -118,17 +120,24 @@ right_cell = cols[1].container(
     border=True, height="stretch", vertical_alignment="center"
 )
 
-def load_data2():
-    df = pd.read_csv("https://b2drop.eudat.eu/public.php/dav/files/efStHSPAM8HLc92/products/swc-from-crns.txt",
+def load_data(url):
+    df = pd.read_csv(url,
                      sep="\t", na_values="na")
     df['datetime'] = pd.to_datetime(df['datetime'])
     df = df.set_index('datetime')
     df.index.name = 'Date'
     df = df.loc[df.index[-1] - pd.DateOffset(days=horizon_map[horizon]):df.index[-1]]
+    df = df.rename(columns={"QUI":"DED", "MQ35":"MQ"})
+    if "WUS" in df.columns:
+        df = df.drop(columns=["WUS"])
     return df
 
 #data = load_data(dtimes, STOCKS, rho=0.7, seed=42)
-data = load_data2()[tickers]
+data2 = load_data("https://b2drop.eudat.eu/public.php/dav/files/efStHSPAM8HLc92/products/swc-from-crns.txt")
+data = data2[tickers]
+sim2 = load_data("https://b2drop.eudat.eu/public.php/dav/files/efStHSPAM8HLc92/products/swc-from-swap.txt")
+sim = sim2[tickers]
+
 
 #@st.cache_resource(show_spinner=False, ttl="6h")
 #def load_data(tickers, period):
@@ -137,7 +146,6 @@ data = load_data2()[tickers]
 #    if data is None:
 #        raise RuntimeError("YFinance returned no data.")
 #    return data["Close"]
-
 
 # Load the data
 #try:
@@ -153,13 +161,7 @@ if empty_columns:
     st.error(f"Error loading data for the tickers: {', '.join(empty_columns)}.")
     st.stop()
 
-# Normalize prices (start at 1)
-normalized = data.div(data.iloc[0])
-
-latest_norm_values = {normalized[ticker].iat[-1]: ticker for ticker in tickers}
-#max_norm_value = max(latest_norm_values.items())
-#min_norm_value = min(latest_norm_values.items())
-mean_theta = data.loc["2024-09-01":"2025-09-01"].mean()
+mean_theta = data.mean()
 
 bottom_left_cell = cols[0].container(
     border=True, height="stretch", vertical_alignment="center"
@@ -168,130 +170,60 @@ bottom_left_cell = cols[0].container(
 with bottom_left_cell:
     cols = st.columns(2)
     cols[0].metric(
-        "Trockenster Standort: "+mean_theta.idxmin(),
+        "Mittelwert: "+mean_theta.idxmin(),
         round(mean_theta.min(), 2),
         delta=f"{round(mean_theta.min() * 100)}%",
         width="content",
     )
     cols[1].metric(
-        "Feuchtester Standort: "+mean_theta.idxmax(),
+        "Mittelwert: "+mean_theta.idxmax(),
         round(mean_theta.max(), 2),
         delta=f"{round(mean_theta.max() * 100)}%",
         width="content",
     )
 
-
-# Plot normalized prices
-#with right_cell:
-#    st.altair_chart(
-#        alt.Chart(
-#            normalized.reset_index().melt(
-#                id_vars=["Date"], var_name="Stock", value_name="Normalized price"
-#            )
-#        )
-#        .mark_line()
-#        .encode(
-#            alt.X("Date:T"),
-#            alt.Y("Normalized price:Q").scale(zero=False),
-#            alt.Color("Stock:N"),
-#        )
-#        .properties(height=400)
-#    )
-
 with right_cell:
-    st.altair_chart(
-        alt.Chart(
-                data.reset_index().rename(columns={"index": "Date"})  .melt("Date", var_name="series", value_name="value")
-            )
-            .mark_line()
-            .encode(
-                x="Date:T",
-                y=alt.Y("value:Q", title="Soil water content [m³/m³]", scale=alt.Scale(domain=[0, 0.4])),
-                color="series:N",
-                tooltip=["Date:T", "series:N", "value:Q"]
-        )
-        .properties(height=400)
-    )
+    fig = px.line(data, x=data.index, y=tickers)
+    st.plotly_chart(fig, use_container_width=True)
 
 ""
 ""
 
 # Plot individual stock vs peer average
 """
-## Individual stocks vs peer average
+## Darstellung der einzelnen Monitoringstandorte
 
-For the analysis below, the "peer average" when analyzing stock X always
-excludes X itself.
+Die folgenden Abbildungen zeigen für jeden einzelnen Standort unterschiedliche
+Variablen: SWC(CRNS) ist die aus CRNS-Beobachtungen abgeleitete Bodenfeuchte,
+SWC(SWAP) ist die mit Hilfe des Bodenwasserhaushaltsmodells SWAP simulierte
+Bodenfeuchte.
 """
 
-if len(tickers) <= 1:
-    st.warning("Pick 2 or more tickers to compare them")
-    st.stop()
-
-NUM_COLS = 4
+NUM_COLS = 3
 cols = st.columns(NUM_COLS)
 
-for i, ticker in enumerate(tickers):
-    # Calculate peer average (excluding current stock)
-    peers = normalized.drop(columns=[ticker])
-    peer_avg = peers.mean(axis=1)
-
-    # Create DataFrame with peer average.
-    plot_data = pd.DataFrame(
-        {
-            "Date": normalized.index,
-            ticker: normalized[ticker],
-            "Peer average": peer_avg,
-        }
-    ).melt(id_vars=["Date"], var_name="Series", value_name="Price")
-
-    chart = (
-        alt.Chart(plot_data)
-        .mark_line()
-        .encode(
-            alt.X("Date:T"),
-            alt.Y("Price:Q").scale(zero=False),
-            alt.Color(
-                "Series:N",
-                scale=alt.Scale(domain=[ticker, "Peer average"], range=["red", "gray"]),
-                legend=alt.Legend(orient="bottom"),
-            ),
-            alt.Tooltip(["Date", "Series", "Price"]),
-        )
-        .properties(title=f"{ticker} vs peer average", height=300)
+for i, ticker in enumerate(data2.columns):
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(x=data2.index, y=data2[ticker], mode="lines", name="SWC(CRNS)")
+    )
+    fig.add_trace(
+        go.Scatter(x=sim2.index, y=sim2[ticker], mode="lines", name="SWC(SWAP)")
     )
 
-    cell = cols[(i * 2) % NUM_COLS].container(border=True)
+    #fig = px.line(data2, x=data.index, y=ticker, title=ticker)
+    fig.update_layout(title=ticker)
+    
+    cell = cols[(i * 1) % NUM_COLS].container(border=True)
     cell.write("")
-    cell.altair_chart(chart, use_container_width=True)
+    cell.plotly_chart(fig, use_container_width=True, key=i)
 
-    # Create Delta chart
-    plot_data = pd.DataFrame(
-        {
-            "Date": normalized.index,
-            "Delta": normalized[ticker] - peer_avg,
-        }
-    )
-
-    chart = (
-        alt.Chart(plot_data)
-        .mark_area()
-        .encode(
-            alt.X("Date:T"),
-            alt.Y("Delta:Q").scale(zero=False),
-        )
-        .properties(title=f"{ticker} minus peer average", height=300)
-    )
-
-    cell = cols[(i * 2 + 1) % NUM_COLS].container(border=True)
-    cell.write("")
-    cell.altair_chart(chart, use_container_width=True)
 
 ""
 ""
 
 """
-## Raw data
+## Datendownload
 """
 
 data
