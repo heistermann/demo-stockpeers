@@ -18,6 +18,7 @@ import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 st.set_page_config(
     page_title="Soil water viewer",
@@ -135,6 +136,9 @@ data2 = load_data("https://b2drop.eudat.eu/public.php/dav/files/efStHSPAM8HLc92/
 data = data2[tickers]
 sim2 = load_data("https://b2drop.eudat.eu/public.php/dav/files/efStHSPAM8HLc92/products/swc-from-swap.txt")
 sim = sim2[tickers]
+d862 = load_data("https://b2drop.eudat.eu/public.php/dav/files/efStHSPAM8HLc92/products/d86-from-crns.txt")
+d86 = d862[tickers]
+
 
 
 #@st.cache_resource(show_spinner=False, ttl="6h")
@@ -187,29 +191,41 @@ with right_cell:
 ""
 ""
 
-# Plot individual stock vs peer average
+
 """
 ## Darstellung der einzelnen Monitoringstandorte
 
 Die folgenden Abbildungen zeigen für jeden einzelnen Standort unterschiedliche
-Variablen: SWC(CRNS) ist die aus CRNS-Beobachtungen abgeleitete Bodenfeuchte,
-SWC(SWAP) ist die mit Hilfe des Bodenwasserhaushaltsmodells SWAP simulierte
-Bodenfeuchte.
+Variablen: **SWC(CRNS)** ist die aus CRNS-Beobachtungen abgeleitete Bodenfeuchte,
+**SWC(SWAP)** ist die mit Hilfe des Bodenwasserhaushaltsmodells SWAP simulierte
+Bodenfeuchte. Die Variable **D86** stellt die Eindringtiefe des CRNS-Signals (in cm)
+und gibt damit einen Eindruck der vertikalen Repräsentativität der
+CRNS-gestützten Bodenfeuchteschätzung.
 """
 
 NUM_COLS = 3
 cols = st.columns(NUM_COLS)
 
 for i, ticker in enumerate(data2.columns):
-    fig = go.Figure()
+    fig = make_subplots(specs=[[{"secondary_y": True}]])
+    #fig = go.Figure()
     fig.add_trace(
-        go.Scatter(x=data2.index, y=data2[ticker], mode="lines", name="SWC(CRNS)")
+        go.Scatter(x=data2.index, y=-d862[ticker], mode="lines", name="D86", 
+                fillcolor="rgba(0, 150, 200, 0.3)",  # transparency recommended
+                line=dict(color="rgb(0,150,200)", width=0), fill="tozeroy"), secondary_y=True
     )
     fig.add_trace(
-        go.Scatter(x=sim2.index, y=sim2[ticker], mode="lines", name="SWC(SWAP)")
+        go.Scatter(x=data2.index, y=data2[ticker], mode="lines", name="SWC(CRNS)"), secondary_y=False
+    )
+    fig.add_trace(
+        go.Scatter(x=sim2.index, y=sim2[ticker], mode="lines", name="SWC(SWAP)"), secondary_y=False
     )
 
-    #fig = px.line(data2, x=data.index, y=ticker, title=ticker)
+    fig.update_yaxes(
+    title_text="D86 (cm)",
+    range=[-120, -0],
+    secondary_y=True
+)
     fig.update_layout(title=ticker)
     
     cell = cols[(i * 1) % NUM_COLS].container(border=True)
